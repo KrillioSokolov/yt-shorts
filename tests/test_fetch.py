@@ -1,6 +1,6 @@
 from fetch import channel_videos_url, error_line
 
-COOKIES = "hint: rerun with --cookies-from-browser"
+COOKIES = "hint: rerun with the same URL and --cookies-from-browser firefox"
 UPDATE = "hint: YouTube changed something; run: yt-dlp -U"
 DENO = "hint: install deno"
 

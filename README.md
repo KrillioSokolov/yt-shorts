@@ -6,18 +6,26 @@ Runs inside Claude Code. Scripts handle download, transcription, cutting and sub
 
 1. Install Git for Windows: https://git-scm.com/download/win (defaults are fine).
 2. Install Claude Code: use the Claude desktop app's **Code** tab, or follow the install guide at https://docs.anthropic.com/en/docs/claude-code. Sign in with your Claude account (Pro plan works).
-3. Open PowerShell and run:
-   `winget install Gyan.FFmpeg yt-dlp.yt-dlp Python.Python.3.12`
-   (any ffmpeg build works; subtitles do not need libass.) Then close and reopen the terminal so PATH updates.
+3. Open PowerShell and run these four lines, one at a time:
+   ```
+   winget install Python.Python.3.12 --accept-source-agreements --accept-package-agreements
+   winget install Gyan.FFmpeg --accept-source-agreements --accept-package-agreements
+   winget install yt-dlp.yt-dlp --accept-source-agreements --accept-package-agreements
+   winget install DenoLand.Deno --accept-source-agreements --accept-package-agreements
+   ```
+   (Any ffmpeg build works; subtitles do not need libass. Deno lets yt-dlp read YouTube's player code.)
+   If winget is missing or fails: install Python 3.12 from https://www.python.org/downloads/windows/ with **Add python.exe to PATH** ticked, and download the ffmpeg zip from https://www.gyan.dev/ffmpeg/builds/, unzip it, and add its `bin` folder to PATH.
+   Then fully quit Claude Code (or the desktop app) and start it again so it sees the new PATH.
 4. Unzip this folder to `%USERPROFILE%\.claude\skills\yt-shorts` (so `SKILL.md` sits directly inside `yt-shorts`).
 5. Start Claude Code and run `/yt-shorts setup`. First run downloads the speech model (~480 MB) and takes a few minutes. Give it your channel URL when asked.
 6. Use it:
    - Before bed: `/yt-shorts prep https://youtube.com/watch?v=...` (or just `/yt-shorts prep` for your latest upload). Transcription is slow on an older PC; leave it running.
-   - Next morning: `/yt-shorts clip`. Pick the clips you like, then find them in `%USERPROFILE%\shorts\<video>\`.
+   - Next morning: `/yt-shorts clip`. Pick the clips you like, then find them in a folder named after the video inside `%USERPROFILE%\shorts`.
+7. Overnight run: plug in the PC and set Windows Sleep to **Never** (Settings > System > Power) while it transcribes, or the PC falls asleep and the job stops.
 
 ## Install (macOS)
 
-1. `brew install ffmpeg yt-dlp`
+1. `brew install ffmpeg yt-dlp deno`
 2. Clone or unzip to `~/.claude/skills/yt-shorts`, then `/yt-shorts setup` in Claude Code.
 3. Homebrew's python3 may be newer than the wheels available for faster-whisper. If setup fails on pip, create the venv with Python 3.12 first: `uv venv --seed --python 3.12 .venv` (install uv from https://docs.astral.sh/uv/) and rerun setup with `.venv/bin/python scripts/setup.py`.
 
@@ -38,7 +46,13 @@ Runs inside Claude Code. Scripts handle download, transcription, cutting and sub
 
 ## Troubleshooting
 
-- `ERROR: ... Sign in to confirm` → age-restricted video. Tell Claude: "rerun fetch with --cookies-from-browser chrome".
+- `ERROR: ... Sign in to confirm` → age-restricted video. Close Firefox and tell Claude: "rerun fetch with the same URL and --cookies-from-browser firefox" (Chrome/Edge cookies usually fail on Windows).
+- `ERROR: ... install deno` → run `winget install DenoLand.Deno --accept-source-agreements --accept-package-agreements`, fully quit and restart Claude Code, try again.
 - `ERROR: Unable to extract` → YouTube changed; run `yt-dlp -U`.
 - `Captions out of sync` → tell Claude "keep pauses in clip N" (disables silence removal for that clip) and rerun.
 - `Setup says python >= 3.10 required` → install Python 3.12 (winget on Windows, `uv`/Homebrew on Mac) and rerun.
+
+## For the person packaging this
+
+Build the zip from git, never by zipping the working folder (it contains `config.json`, `.venv` and `workspace`):
+`git archive --format=zip --prefix=yt-shorts/ -o yt-shorts.zip HEAD`

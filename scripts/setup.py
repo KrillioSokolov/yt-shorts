@@ -29,7 +29,7 @@ def install_hint(missing: list[str]) -> str:
     if sys.platform.startswith("win"):
         pkgs = {"ffmpeg": "Gyan.FFmpeg", "ffprobe": "Gyan.FFmpeg", "yt-dlp": "yt-dlp.yt-dlp", "deno": "DenoLand.Deno"}
         return ("winget install " + " ".join(dict.fromkeys(pkgs[m] for m in missing))
-                + "   (then open a NEW terminal so PATH updates)")
+                + "   (then fully quit and restart Claude Code / your terminal so PATH updates)")
     return "sudo apt install ffmpeg && pipx install yt-dlp"
 
 

@@ -62,7 +62,7 @@ def error_line(msg: str) -> str:
     if any(k in low for k in ("unable to extract", "http error 403", "nsig")):
         return last + " | hint: YouTube changed something; run: yt-dlp -U"
     if re.search(r"sign in|age[- ]restrict|confirm your age|private video|cookies|members-only", low):
-        return last + " | hint: rerun with --cookies-from-browser chrome (or edge / firefox)"
+        return last + " | hint: rerun with the same URL and --cookies-from-browser firefox (chrome/edge often fail on Windows)"
     return last
 
 
