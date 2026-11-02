@@ -30,6 +30,10 @@ def short_note(e: Exception) -> str:
     return note[:300]
 
 
+def _is_num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 def render_all(slug: str, cfg: dict, only: list[int] | None) -> dict:
     wdir = WORKSPACE / slug
     approved_path = wdir / "approved.json"
@@ -45,6 +49,8 @@ def render_all(slug: str, cfg: dict, only: list[int] | None) -> dict:
         if (not isinstance(c, dict) or not isinstance(c.get("n"), int) or isinstance(c.get("n"), bool)
                 or not str(c.get("title") or "").strip()):
             die(f"approved.json: clip {i} is missing 'n' or 'title'")
+        if not (_is_num(c.get("start")) and _is_num(c.get("end")) and c["end"] > c["start"]):
+            die(f"approved.json: clip {c['n']} needs numeric start < end")
     known = {c["n"] for c in clips}
     for n in only or []:
         if n not in known:
@@ -67,13 +73,13 @@ def render_all(slug: str, cfg: dict, only: list[int] | None) -> dict:
         n = clip["n"]
         if only and n not in only:
             continue
-        for stale in (clip_dir / f"clip_{n:02d}.mp4", clip_dir / f"clip_{n:02d}.txt",
-                      out_dir / f"clip_{n:02d}.mp4", out_dir / f"clip_{n:02d}.txt"):
-            stale.unlink(missing_ok=True)
         try:
+            for stale in (clip_dir / f"clip_{n:02d}.mp4", clip_dir / f"clip_{n:02d}.txt",
+                          out_dir / f"clip_{n:02d}.mp4", out_dir / f"clip_{n:02d}.txt"):
+                stale.unlink(missing_ok=True)
             cut = cut_clip(src, clip, words, cfg, clip_dir)
             final, n_chunks = subtitle_clip(n, words, cut["keep_ranges"], cfg, clip_dir, color,
-                                            face_bottom=cut["face_bottom"])
+                                            face_bottom=cut["face_bottom"], face_top=cut["face_top"])
             txt = clip_dir / f"clip_{n:02d}.txt"
             txt.write_text(caption_text(clip), encoding="utf-8")
             shutil.copy2(final, out_dir / final.name)
@@ -81,6 +87,10 @@ def render_all(slug: str, cfg: dict, only: list[int] | None) -> dict:
             results[n] = {"n": n, "status": "ok", "title": clip["title"], "dur": cut["dur"],
                           "size_mb": round(final.stat().st_size / 1e6, 1), "crop": cut["crop"],
                           "subs": n_chunks, "note": cut["warn"]}
+        except PermissionError:  # Windows locks a file that is open in a video player
+            results[n] = {"n": n, "status": "fail", "title": clip.get("title", ""), "dur": None,
+                          "size_mb": None, "crop": None, "subs": None,
+                          "note": f"output file is open in another program (close the video player) and rerun --only {n}"}
         except Exception as e:  # one bad clip must not stop the others
             results[n] = {"n": n, "status": "fail", "title": clip.get("title", ""), "dur": None,
                           "size_mb": None, "crop": None, "subs": None, "note": short_note(e)}

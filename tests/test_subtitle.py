@@ -84,8 +84,8 @@ def test_render_chunk_png_shrinks_long_text_to_fit(tmp_path):
 def test_build_overlay_filter_chains_inputs():
     chunks = [{"text": "A", "s": 0.0, "e": 1.2}, {"text": "B", "s": 1.5, "e": 2.0}]
     f = subtitle.build_overlay_filter(chunks, y=1300)
-    assert f.startswith("[0:v][1:v]overlay=0:1300:enable='between(t,0.000,1.200)'[v1];")
-    assert "[v1][2:v]overlay=0:1300:enable='between(t,1.500,2.000)'[v2];" in f
+    assert f.startswith("[0:v][1:v]overlay=0:1300:enable='gte(t,0.000)*lt(t,1.200)'[v1];")
+    assert "[v1][2:v]overlay=0:1300:enable='gte(t,1.500)*lt(t,2.000)'[v2];" in f
     assert f.endswith("[v2]format=yuv420p[vout]")
 
 
@@ -120,3 +120,9 @@ def test_band_y():
     assert subtitle.band_y(1000) == 1360 - 144            # face above the default band
     assert subtitle.band_y(1481) == 1481 + 24             # pushed below the face
     assert subtitle.band_y(1900) == 1920 - 144 - 220      # capped above the bottom UI
+
+
+def test_band_y_moves_above_a_low_face():
+    assert subtitle.band_y(1700, 600) == 600 - 24 - 144    # no room below, room above
+    assert subtitle.band_y(1700, 300) == 1920 - 144 - 220  # no room above the face either: capped
+    assert subtitle.band_y(1481, 600) == 1481 + 24         # fits below: unchanged

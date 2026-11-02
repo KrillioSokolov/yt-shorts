@@ -2,6 +2,7 @@ from fetch import channel_videos_url, error_line
 
 COOKIES = "hint: rerun with --cookies-from-browser"
 UPDATE = "hint: YouTube changed something; run: yt-dlp -U"
+DENO = "hint: install deno"
 
 
 def test_doubled_prefix_stripped_last_line():
@@ -39,3 +40,16 @@ def test_channel_urls():
     assert channel_videos_url("https://www.youtube.com/@foo/streams") == "https://www.youtube.com/@foo/streams"
     u = "https://www.youtube.com/playlist?list=PL123"
     assert channel_videos_url(u) == u
+
+
+def test_deno_hint_from_earlier_warning_line():
+    msg = ("WARNING: [youtube] No supported JavaScript runtime could be found\n"
+           "ERROR: [youtube] abc: Requested format is not available")
+    out = error_line(msg)
+    assert out.startswith("[youtube] abc: Requested format is not available")
+    assert DENO in out and UPDATE not in out and "\n" not in out
+
+
+def test_deno_hint_wins_over_update_and_cookies():
+    out = error_line("n challenge solving failed: unable to extract; sign in")
+    assert DENO in out and UPDATE not in out and COOKIES not in out

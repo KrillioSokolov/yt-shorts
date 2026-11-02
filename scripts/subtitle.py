@@ -32,6 +32,7 @@ BAND_H = FONT_SIZE * 2
 BAND_Y_DEFAULT = 1360 - BAND_H        # bottom edge at 1360 px = 70 % of the frame height
 FACE_GAP = 24                         # px between the detected face bottom and the band top
 BAND_Y_MAX = 1920 - BAND_H - 220      # keeps clear of the Reels/Shorts bottom UI
+TOP_SAFE = 200                        # keeps clear of the Reels/Shorts top UI
 
 FONT_CANDIDATES = {
     "darwin": ["/System/Library/Fonts/Supplemental/Arial Black.ttf",
@@ -141,26 +142,33 @@ def render_chunk_png(text: str, font_path: Path | None, color: tuple, out_path: 
     return BAND_H
 
 
-def band_y(face_bottom: int | None) -> int:
-    """Top of the caption band: the default spot, pushed below the face (output px) but never into the bottom UI."""
+def band_y(face_bottom: int | None, face_top: int | None = None) -> int:
+    """Top of the caption band: the default spot, pushed below the face (output px) but never into the bottom UI.
+
+    When the face reaches too low for a band below it, the band goes above the face if that clears the top UI.
+    """
     if face_bottom is None:
         return BAND_Y_DEFAULT
+    if (face_bottom + FACE_GAP > BAND_Y_MAX and face_top is not None
+            and face_top - FACE_GAP - BAND_H >= TOP_SAFE):
+        return face_top - FACE_GAP - BAND_H
     return min(max(BAND_Y_DEFAULT, face_bottom + FACE_GAP), BAND_Y_MAX)
 
 
 def build_overlay_filter(chunks: list[dict], y: int) -> str:
-    """Chain one overlay per chunk: input i+1 is chunk i's PNG, shown only during [s, e]."""
+    """Chain one overlay per chunk: input i+1 is chunk i's PNG, shown only during [s, e) so neighbors never overlap."""
     parts = []
     prev = "[0:v]"
     for i, c in enumerate(chunks, 1):
-        parts.append(f"{prev}[{i}:v]overlay=0:{y}:enable='between(t,{c['s']:.3f},{c['e']:.3f})'[v{i}]")
+        parts.append(f"{prev}[{i}:v]overlay=0:{y}:enable='gte(t,{c['s']:.3f})*lt(t,{c['e']:.3f})'[v{i}]")
         prev = f"[v{i}]"
     parts.append(f"{prev}format=yuv420p[vout]")
     return ";".join(parts)
 
 
 def subtitle_clip(n: int, words: list[dict], keep_ranges: list[list[float]], cfg: dict,
-                  clip_dir: Path, color: str | None = None, face_bottom: int | None = None) -> tuple[Path, int]:
+                  clip_dir: Path, color: str | None = None, face_bottom: int | None = None,
+                  face_top: int | None = None) -> tuple[Path, int]:
     """Render captions for clip n and burn them into clip_NN_raw.mp4 -> clip_NN.mp4."""
     color = color or cfg["subtitle_color"]
     if color not in COLORS:
@@ -169,7 +177,7 @@ def subtitle_clip(n: int, words: list[dict], keep_ranges: list[list[float]], cfg
     chunks = chunk_words(words_in_clip(words, keep_ranges))
     for c in chunks:
         c["text"] = c["text"].upper() if uppercase else c["text"]
-    y = band_y(face_bottom)
+    y = band_y(face_bottom, face_top)
     save_json(clip_dir / f"clip_{n:02d}_subs.json", {"band_y": y, "chunks": chunks})
 
     raw_name, out_name = f"clip_{n:02d}_raw.mp4", f"clip_{n:02d}.mp4"

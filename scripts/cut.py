@@ -25,7 +25,7 @@ def snap_to_words(words: list[dict], start: float, end: float, pad: float = END_
     s = min(words, key=lambda w: abs(w["s"] - start))["s"]
     we = min(words, key=lambda w: abs(w["e"] - end))
     e = we["e"] + pad
-    later = [w["s"] for w in words if w["s"] > we["e"]]
+    later = [w["s"] for w in words if w["s"] >= we["e"]]
     if later:
         e = min(e, min(later))
     return round(s, 3), round(e, 3)
@@ -39,11 +39,12 @@ def crop_geometry(iw: int, ih: int) -> tuple[int, int]:
 
 
 def detect_face(source: Path, times: list[float], iw: int, ih: int, crop_w: int, n: int,
-                work_dir: Path, log: Path) -> tuple[int, str, int | None]:
+                work_dir: Path, log: Path) -> tuple[int, str, int | None, int | None]:
     """Sample a frame at each time in `times` and Haar-detect the largest face (small boxes ignored).
 
-    Returns (crop_x, mode, face_bottom_src): crop x centers the median face, face_bottom_src is the
-    lowest face bottom edge across frames in source pixels. Falls back to (center, "center", None).
+    Returns (crop_x, mode, face_bottom_src, face_top_src): crop x centers the median face,
+    face_bottom_src / face_top_src are the lowest bottom edge / highest top edge across frames in
+    source pixels. Falls back to (center, "center", None, None).
     """
     center = (iw - crop_w) // 2
     frames = [work_dir / f"clip_{n:02d}_face_{k}.jpg" for k in range(len(times))]
@@ -71,18 +72,19 @@ def detect_face(source: Path, times: list[float], iw: int, ih: int, crop_w: int,
             lines.append(f"t={t:.2f}: face ({fx},{fy},{fw},{fh})")
         if not boxes:
             lines.append("decision: no face found; centered")
-            return center, "center", None
+            return center, "center", None, None
         cxs = sorted(bx + bw / 2 for bx, _by, bw, _bh in boxes)
         mid = len(cxs) // 2
         cx = cxs[mid] if len(cxs) % 2 else (cxs[mid - 1] + cxs[mid]) / 2
         x = int(max(0, min(iw - crop_w, cx - crop_w / 2)))
         face_bottom_src = max(by + bh for _bx, by, _bw, bh in boxes)
+        face_top_src = min(by for _bx, by, _bw, _bh in boxes)
         lines.append(f"decision: face in {len(boxes)}/{len(times)} frames; median x={cx:.0f}; "
-                     f"crop x={x}; face_bottom_src={face_bottom_src}")
-        return x, "face", face_bottom_src
+                     f"crop x={x}; face_top_src={face_top_src}; face_bottom_src={face_bottom_src}")
+        return x, "face", face_bottom_src, face_top_src
     except Exception as e:
         lines.append(f"face detect failed: {type(e).__name__}: {e}; centered")
-        return center, "center", None
+        return center, "center", None, None
     finally:
         for frame in frames:
             frame.unlink(missing_ok=True)
@@ -122,14 +124,15 @@ def cut_clip(src: Path, clip: dict, words: list[dict], cfg: dict, clip_dir: Path
         raise RuntimeError(f"clip {n}: no speech inside {start}-{end}")
     dur = ranges_duration(ranges)
     if dur > MAX_DUR - ENCODE_MARGIN:
-        raise RuntimeError(f"clip is {dur - MAX_DUR:.1f}s over the 60s limit after tightening ({dur:.1f}s); "
+        over = dur - (MAX_DUR - ENCODE_MARGIN)
+        raise RuntimeError(f"clip is {over:.1f}s over the 60s limit after tightening ({dur:.1f}s); "
                            f"shorten start/end")
     warn = f"short clip ({dur:.1f}s)" if dur < MIN_DUR else ""
 
     crop_w, crop_h = crop_geometry(info["width"], info["height"])
     crop_y = (info["height"] - crop_h) // 2
     center = (info["width"] - crop_w) // 2
-    face_bottom = None
+    face_bottom = face_top = None
     if cfg.get("crop_x_offset") is not None:
         x = int(max(0, min(info["width"] - crop_w, center + int(cfg["crop_x_offset"]))))
         mode = "config"
@@ -137,10 +140,11 @@ def cut_clip(src: Path, clip: dict, words: list[dict], cfg: dict, clip_dir: Path
         face_log = clip_dir / f"clip_{n:02d}_face.log"
         face_log.unlink(missing_ok=True)
         times = [start + (end - start) * f for f in (0.25, 0.5, 0.75)]
-        x, mode, face_bottom_src = detect_face(src, times, info["width"], info["height"], crop_w, n,
-                                               clip_dir, face_log)
+        x, mode, face_bottom_src, face_top_src = detect_face(src, times, info["width"], info["height"], crop_w, n,
+                                                             clip_dir, face_log)
         if face_bottom_src is not None:
             face_bottom = round((face_bottom_src - crop_y) * 1920 / crop_h)
+            face_top = round((face_top_src - crop_y) * 1920 / crop_h)
 
     out = clip_dir / f"clip_{n:02d}_raw.mp4"
     seek = max(0.0, start - SEEK_LEAD)
@@ -153,7 +157,7 @@ def cut_clip(src: Path, clip: dict, words: list[dict], cfg: dict, clip_dir: Path
     run(cmd, log_path=clip_dir / f"clip_{n:02d}_cut.log")
     save_json(clip_dir / f"clip_{n:02d}_keep_ranges.json", ranges)
     return {"raw": out, "keep_ranges": ranges, "dur": dur, "crop": mode, "warn": warn, "start": start, "end": end,
-            "face_bottom": face_bottom}
+            "face_bottom": face_bottom, "face_top": face_top}
 
 
 def main() -> None:

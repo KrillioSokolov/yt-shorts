@@ -18,6 +18,7 @@ from common import SOURCE_EXTS, WORKSPACE, die, load_config, run, save_json, slu
 
 COMMENT_ARGS = "youtube:max_comments=30,all,0,0;comment_sort=top"
 FORMAT = "bv*[height<=1080]+ba/b[height<=1080]/b"
+DENO_HINT = " | hint: install deno (winget install DenoLand.Deno / brew install deno), restart Claude Code, retry"
 
 
 TAB_SEGMENTS = {"videos", "streams", "shorts", "featured", "live", "playlists"}
@@ -54,7 +55,11 @@ def error_line(msg: str) -> str:
     last = lines[-1] if lines else "unknown error"
     last = re.sub(r"^\s*error:\s*", "", last, flags=re.I)
     low = last.lower()
-    if any(k in low for k in ("unable to extract", "http error 403", "nsig", "requested format is not available")):
+    # yt-dlp's JS-runtime warnings come on earlier lines, so search the whole message
+    if any(k in msg.lower() for k in ("javascript runtime", "js runtime", "jsc", "n challenge",
+                                      "challenge solving", "requested format is not available")):
+        return last + DENO_HINT
+    if any(k in low for k in ("unable to extract", "http error 403", "nsig")):
         return last + " | hint: YouTube changed something; run: yt-dlp -U"
     if re.search(r"sign in|age[- ]restrict|confirm your age|private video|cookies|members-only", low):
         return last + " | hint: rerun with --cookies-from-browser chrome (or edge / firefox)"
@@ -81,7 +86,7 @@ def main() -> None:
     args = ap.parse_args()
     cfg = load_config()
 
-    base = [tool_path("yt-dlp"), "--no-warnings"]
+    base = [tool_path("yt-dlp")]
     if args.cookies_from_browser:
         base += ["--cookies-from-browser", args.cookies_from_browser]
 

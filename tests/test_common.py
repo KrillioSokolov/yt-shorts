@@ -1,5 +1,8 @@
 import json
+import os
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -54,3 +57,12 @@ def test_run_raises_with_stderr_tail(tmp_path):
 def test_run_ok_returns_stdout():
     p = common.run(["python3", "-c", "print('hi')"])
     assert p.stdout.strip() == "hi"
+
+
+def test_import_makes_stdout_utf8_safe_on_cp1252_console():
+    repo = Path(__file__).resolve().parent.parent
+    p = subprocess.run([sys.executable, "-c",
+                        "import sys; sys.path.insert(0, 'scripts'); import common; print('t\U0001f525')"],
+                       env={**os.environ, "PYTHONIOENCODING": "cp1252"}, cwd=repo, capture_output=True)
+    assert p.returncode == 0, p.stderr
+    assert b"t" in p.stdout

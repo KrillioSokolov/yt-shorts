@@ -10,6 +10,13 @@ import sys
 import unicodedata
 from pathlib import Path
 
+# Windows consoles default to cp1252; a video title with an emoji would crash print().
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 WORKSPACE = SKILL_DIR / "workspace"
 CONFIG_PATH = SKILL_DIR / "config.json"

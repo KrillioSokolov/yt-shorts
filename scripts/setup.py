@@ -24,13 +24,22 @@ TOOLS = ("ffmpeg", "ffprobe", "yt-dlp")
 
 def install_hint(missing: list[str]) -> str:
     if sys.platform == "darwin":
-        pkgs = {"ffmpeg": "ffmpeg", "ffprobe": "ffmpeg", "yt-dlp": "yt-dlp"}
+        pkgs = {"ffmpeg": "ffmpeg", "ffprobe": "ffmpeg", "yt-dlp": "yt-dlp", "deno": "deno"}
         return "brew install " + " ".join(dict.fromkeys(pkgs[m] for m in missing))
     if sys.platform.startswith("win"):
-        pkgs = {"ffmpeg": "Gyan.FFmpeg", "ffprobe": "Gyan.FFmpeg", "yt-dlp": "yt-dlp.yt-dlp"}
+        pkgs = {"ffmpeg": "Gyan.FFmpeg", "ffprobe": "Gyan.FFmpeg", "yt-dlp": "yt-dlp.yt-dlp", "deno": "DenoLand.Deno"}
         return ("winget install " + " ".join(dict.fromkeys(pkgs[m] for m in missing))
                 + "   (then open a NEW terminal so PATH updates)")
     return "sudo apt install ffmpeg && pipx install yt-dlp"
+
+
+def js_runtime() -> str | None:
+    """yt-dlp needs deno (or node) to solve YouTube's JS challenges."""
+    if shutil.which("deno"):
+        return "deno"
+    if shutil.which("node"):
+        return "node"
+    return None
 
 
 def stderr_tail(text: str, n: int = 3) -> str:
@@ -56,9 +65,12 @@ def main() -> None:
     missing = [t for t in TOOLS if not shutil.which(t)]
     rows.append(("ffmpeg", "MISSING" if "ffmpeg" in missing or "ffprobe" in missing else "ok"))
     rows.append(("yt-dlp", "MISSING" if "yt-dlp" in missing else "ok"))
+    js = js_runtime()
+    rows.append(("js runtime", f"ok ({js})" if js else "MISSING - YouTube downloads may fail; install deno"))
     if missing:
         print_table(rows)
-        print(f"ERROR: missing {', '.join(missing)}. Install with:\n  {install_hint(missing)}\nthen rerun setup.")
+        hint_for = missing + ([] if js else ["deno"])
+        print(f"ERROR: missing {', '.join(missing)}. Install with:\n  {install_hint(hint_for)}\nthen rerun setup.")
         sys.exit(1)
 
     vp = venv_python()
