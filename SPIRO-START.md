@@ -5,7 +5,7 @@ This turns one of your long YouTube videos into several vertical shorts (under 6
 ## One-time setup (about 15 minutes, mostly waiting)
 
 **Step 1. Get Claude Code.**
-Install the Claude desktop app from https://claude.ai/download, sign in with your Claude account, and open the **Code** tab. That is Claude Code.
+Install the Claude desktop app from https://claude.ai/download, sign in with your Claude account, and open the **Code** tab. That is Claude Code. The normal chat tab cannot run this (it has no access to your PC), so always use the Code tab.
 
 **Step 2. Install the skill. Pick ONE way.**
 
