@@ -155,3 +155,7 @@ Zip `yt-shorts/` excluding `.venv`, `workspace`, `.git`. README: (1) install Git
 ## Out of scope (v1)
 
 Auto-upload, multi-speaker split-screen, b-roll/motion graphics, karaoke word highlighting, denoising, cloud transcription.
+
+## Amendment 2026-11-01: subtitle rendering without libass
+
+Homebrew's current ffmpeg formula (9.x) ships no libass, so the `ass`, `subtitles` and `drawtext` filters are unavailable on the dev Mac, and the skill must not depend on a particular ffmpeg build. Subtitles are therefore rendered as transparent PNG bands with Pillow (bold TTF from the OS: Arial Black / Arial Bold / Impact on macOS and Windows, DejaVu/Liberation Bold on Linux, `config.subtitle_font_file` override, Pillow default font as last resort) and composited by ffmpeg's core `overlay` filter, one overlay per chunk gated by `enable='between(t,s,e)'`. Look is unchanged: one line, uppercase, white or yellow fill, 4 px black outline, band bottom at 70 % of frame height, long lines shrink to fit inside 60 px side margins. Artifacts per clip: `clip_NN_subs.json` (chunk list) replaces `clip_NN.ass`; PNGs are deleted after a successful burn. `config.subtitle_font` is replaced by `config.subtitle_font_file` (null = auto). `setup.py` installs `Pillow>=10.1`.
