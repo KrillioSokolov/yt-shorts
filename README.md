@@ -2,6 +2,8 @@
 
 Runs inside Claude Code. Scripts handle download, transcription, cutting and subtitles; Claude picks the moments with you.
 
+**Not a developer? Read [SPIRO-START.md](SPIRO-START.md) instead.** It has a one-message install you paste into Claude Code, and a double-click installer (`install.ps1`) as a fallback. The steps below are the manual version.
+
 ## Install (Windows)
 
 1. Install Git for Windows: https://git-scm.com/download/win (defaults are fine).
