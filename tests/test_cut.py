@@ -28,6 +28,17 @@ def test_crop_geometry_even_width():
     assert cut.crop_geometry(720, 1280) == (720, 1280)
 
 
+def test_crop_geometry_zoom_out_widens_and_caps():
+    assert cut.crop_geometry(1920, 1080, 1.4) == (850, 1080)
+    assert cut.crop_geometry(1920, 1080, 4.0) == (1920, 1080)
+    assert cut.crop_geometry(1080, 2400, 1.4) == (1080, 1920)   # portrait ignores zoom_out
+
+
+def test_to_output_y_full_height_and_letterboxed():
+    assert abs(cut.to_output_y(862, 0, 606, 1080) - 1532) <= 1   # no bars: 862 * 1920 / 1080
+    assert abs(cut.to_output_y(862, 0, 850, 1080) - 1369) <= 1   # bars: 274 + round(862 * 1080 / 850)
+
+
 def test_snap_end_pad_stops_before_next_word():
     words = [{"w": "a", "s": 1.0, "e": 1.4}, {"w": "b", "s": 1.6, "e": 2.0}]
     assert cut.snap_to_words(words, 0.9, 1.4) == (1.0, 1.6)
@@ -45,6 +56,15 @@ def test_build_filter_single_range():
     assert "concat=n=1:v=1:a=1" in f
     assert "crop=606:1080:657:0,scale=1080:1920,fps=30" in f
     assert "loudnorm=I=-14:TP=-1.5:LRA=11" in f
+
+
+def test_build_filter_bars_overlays_on_blurred_background():
+    f = cut.build_filter([[10.0, 20.0]], offset=9.5, crop_w=850, crop_h=1080, x=535, y=0, bars=True)
+    assert "[vc]crop=850:1080:535:0,split[bg][fg]" in f
+    assert "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4[bgb]" in f
+    assert "[fg]scale=1080:-2[fgs]" in f
+    assert "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[vout]" in f
+    assert "scale=1080:1920,fps=30" not in f
 
 
 def test_build_filter_two_ranges_chains_inputs():
@@ -97,6 +117,47 @@ def test_cut_clip_config_offset_skips_detection(tmp_path):
     assert res["face_bottom"] is None
     assert not list(tmp_path.glob("clip_01_face_*.jpg"))
     assert not (tmp_path / "clip_01_face.log").exists()
+
+
+def row_sharpness(gray: bytes, width: int, rows: range) -> float:
+    """Mean squared horizontal neighbour difference over the given rows of a gray8 frame (blur lowers it)."""
+    total = count = 0
+    for r in rows:
+        line = gray[r * width:(r + 1) * width]
+        total += sum((a - b) ** 2 for a, b in zip(line, line[1:]))
+        count += width - 1
+    return total / count
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_cut_clip_zoom_out_letterboxes(tmp_path):
+    src = make_video(tmp_path / "source.mp4", 6)
+    words = [{"w": f"w{i}", "s": float(t), "e": t + 0.5} for i, t in enumerate([1, 2, 3, 4])]
+    cfg = common.load_config()
+    cfg["crop_x_offset"] = 0
+    cfg["zoom_out"] = 1.4
+    res = cut.cut_clip(src, {"n": 1, "start": 1.0, "end": 4.5}, words, cfg, tmp_path)
+    assert res["bars"] is True and res["zoom_out"] == 1.4
+    info = common.ffprobe_info(res["raw"])
+    assert (info["width"], info["height"]) == (1080, 1920)
+    assert "boxblur" in (tmp_path / "clip_01_cut.log").read_text(encoding="utf-8")
+    gray = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1", "-i", str(res["raw"]), "-frames:v", "1",
+                           "-f", "rawvideo", "-pix_fmt", "gray", "-"], check=True, capture_output=True).stdout
+    assert len(gray) == 1080 * 1920
+    # top rows are the blurred background, middle rows the sharp scaled-down crop
+    assert row_sharpness(gray, 1080, range(0, 100)) * 10 < row_sharpness(gray, 1080, range(900, 1000))
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_cut_clip_zoom_out_1_has_no_bars(tmp_path):
+    src = make_video(tmp_path / "source.mp4", 6)
+    words = [{"w": f"w{i}", "s": float(t), "e": t + 0.5} for i, t in enumerate([1, 2, 3, 4])]
+    cfg = common.load_config()
+    cfg["crop_x_offset"] = 0
+    cfg["zoom_out"] = 1.0
+    res = cut.cut_clip(src, {"n": 1, "start": 1.0, "end": 4.5}, words, cfg, tmp_path)
+    assert res["bars"] is False
+    assert "boxblur" not in (tmp_path / "clip_01_cut.log").read_text(encoding="utf-8")
 
 
 REAL_SRC = Path("/Users/skaix/yt-shorts/workspace/most-self-respecting-men-will-be-single-lXUjgq6MiCg/source.mp4")

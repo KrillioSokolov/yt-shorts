@@ -31,11 +31,32 @@ def snap_to_words(words: list[dict], start: float, end: float, pad: float = END_
     return round(s, 3), round(e, 3)
 
 
-def crop_geometry(iw: int, ih: int) -> tuple[int, int]:
-    """Largest 9:16 window inside the source, as (crop_w, crop_h), both even."""
+def crop_geometry(iw: int, ih: int, zoom_out: float = 1.0) -> tuple[int, int]:
+    """Source crop window as (crop_w, crop_h), both even.
+
+    Landscape: full height, width = 9:16 of the height times `zoom_out` (capped at the source width);
+    zoom_out > 1 gives a wider shot that is letterboxed over a blurred background. Portrait: the largest
+    9:16 window (zoom_out ignored).
+    """
     if ih * 9 / 16 <= iw:
-        return int(ih * 9 / 16) // 2 * 2, ih
+        return min(iw, int(ih * 9 / 16 * zoom_out)) // 2 * 2, ih
     return iw // 2 * 2, int(iw * 16 / 9) // 2 * 2
+
+
+def has_bars(crop_w: int, crop_h: int) -> bool:
+    """True when the crop is wider than 9:16, so it is letterboxed over a blurred background."""
+    return crop_w * 16 > crop_h * 9 + 2
+
+
+def to_output_y(src_y: int, crop_y: int, crop_w: int, crop_h: int) -> int:
+    """Map a source-pixel y to the 1080x1920 output, accounting for the letterbox offset when there are bars."""
+    if has_bars(crop_w, crop_h):
+        out_scale = 1080 / crop_w
+        offset_y = (1920 - round(crop_h * out_scale)) // 2
+    else:
+        out_scale = 1920 / crop_h
+        offset_y = 0
+    return round(offset_y + (src_y - crop_y) * out_scale)
 
 
 def detect_face(source: Path, times: list[float], iw: int, ih: int, crop_w: int, n: int,
@@ -92,8 +113,12 @@ def detect_face(source: Path, times: list[float], iw: int, ih: int, crop_w: int,
             f.write("".join(ln + "\n" for ln in lines))
 
 
-def build_filter(keep_ranges: list[list[float]], offset: float, crop_w: int, crop_h: int, x: int, y: int) -> str:
-    """ffmpeg filter_complex: trim each keep range (relative to the input seek), concat, crop, scale, loudnorm."""
+def build_filter(keep_ranges: list[list[float]], offset: float, crop_w: int, crop_h: int, x: int, y: int,
+                 bars: bool = False) -> str:
+    """ffmpeg filter_complex: trim each keep range (relative to the input seek), concat, crop, scale, loudnorm.
+
+    With `bars`, the crop is scaled to 1080 wide and centred over a blurred, zoomed copy of itself.
+    """
     parts, inputs = [], ""
     for i, (a, b) in enumerate(keep_ranges):
         a, b = a - offset, b - offset
@@ -101,7 +126,13 @@ def build_filter(keep_ranges: list[list[float]], offset: float, crop_w: int, cro
         parts.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
         inputs += f"[v{i}][a{i}]"
     parts.append(f"{inputs}concat=n={len(keep_ranges)}:v=1:a=1[vc][ac]")
-    parts.append(f"[vc]crop={crop_w}:{crop_h}:{x}:{y},scale=1080:1920,fps=30,format=yuv420p[vout]")
+    if bars:
+        parts.append(f"[vc]crop={crop_w}:{crop_h}:{x}:{y},split[bg][fg]")
+        parts.append("[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4[bgb]")
+        parts.append("[fg]scale=1080:-2[fgs]")
+        parts.append("[bgb][fgs]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[vout]")
+    else:
+        parts.append(f"[vc]crop={crop_w}:{crop_h}:{x}:{y},scale=1080:1920,fps=30,format=yuv420p[vout]")
     parts.append("[ac]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]")
     return ";".join(parts)
 
@@ -129,7 +160,9 @@ def cut_clip(src: Path, clip: dict, words: list[dict], cfg: dict, clip_dir: Path
                            f"shorten start/end")
     warn = f"short clip ({dur:.1f}s)" if dur < MIN_DUR else ""
 
-    crop_w, crop_h = crop_geometry(info["width"], info["height"])
+    zoom_out = float(cfg.get("zoom_out", 1.0))
+    crop_w, crop_h = crop_geometry(info["width"], info["height"], zoom_out)
+    bars = has_bars(crop_w, crop_h)
     crop_y = (info["height"] - crop_h) // 2
     center = (info["width"] - crop_w) // 2
     face_bottom = face_top = None
@@ -143,21 +176,21 @@ def cut_clip(src: Path, clip: dict, words: list[dict], cfg: dict, clip_dir: Path
         x, mode, face_bottom_src, face_top_src = detect_face(src, times, info["width"], info["height"], crop_w, n,
                                                              clip_dir, face_log)
         if face_bottom_src is not None:
-            face_bottom = round((face_bottom_src - crop_y) * 1920 / crop_h)
-            face_top = round((face_top_src - crop_y) * 1920 / crop_h)
+            face_bottom = to_output_y(face_bottom_src, crop_y, crop_w, crop_h)
+            face_top = to_output_y(face_top_src, crop_y, crop_w, crop_h)
 
     out = clip_dir / f"clip_{n:02d}_raw.mp4"
     seek = max(0.0, start - SEEK_LEAD)
     cmd = [tool_path("ffmpeg"), "-y", "-hide_banner",
            "-ss", f"{seek:.3f}", "-t", f"{end - seek + SEEK_LEAD:.3f}", "-i", src,
-           "-filter_complex", build_filter(ranges, seek, crop_w, crop_h, x, crop_y),
+           "-filter_complex", build_filter(ranges, seek, crop_w, crop_h, x, crop_y, bars),
            "-map", "[vout]", "-map", "[aout]",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out]
     run(cmd, log_path=clip_dir / f"clip_{n:02d}_cut.log")
     save_json(clip_dir / f"clip_{n:02d}_keep_ranges.json", ranges)
     return {"raw": out, "keep_ranges": ranges, "dur": dur, "crop": mode, "warn": warn, "start": start, "end": end,
-            "face_bottom": face_bottom, "face_top": face_top}
+            "face_bottom": face_bottom, "face_top": face_top, "zoom_out": zoom_out, "bars": bars}
 
 
 def main() -> None:
@@ -175,7 +208,8 @@ def main() -> None:
     clip_dir.mkdir(exist_ok=True)
     res = cut_clip(source_path(slug), clip, load_json(wdir / "words.json"), load_config(), clip_dir)
     print(f"raw:   {res['raw']}")
-    print(f"dur:   {res['dur']}s  crop={res['crop']}  face_bottom={res['face_bottom']}  {res['warn']}".rstrip())
+    print(f"dur:   {res['dur']}s  crop={res['crop']}  bars={res['bars']}  face_bottom={res['face_bottom']}  "
+          f"{res['warn']}".rstrip())
 
 
 if __name__ == "__main__":

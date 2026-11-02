@@ -42,6 +42,7 @@ Runs inside Claude Code. Scripts handle download, transcription, cutting and sub
 | `subtitle_font_file` | null | Path to a bold .ttf; null = Arial Black/Arial Bold/Impact from the OS |
 | `subtitle_uppercase` | true | ALL CAPS captions |
 | `crop_x_offset` | null | Pixels left/right of center to crop; null = auto face detect |
+| `zoom_out` | 1.4 | 1.0 = tight full-height crop; higher = wider shot with blurred bars top/bottom |
 | `remove_silence` | true | Cut pauses longer than `gap_threshold` |
 | `gap_threshold` / `gap_keep` | 0.6 / 0.25 | Pause length that gets cut, and how much stays |
 | `max_candidates` | 25 | How many segments Claude gets to choose from |
