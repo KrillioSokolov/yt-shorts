@@ -38,39 +38,56 @@ def crop_geometry(iw: int, ih: int) -> tuple[int, int]:
     return iw // 2 * 2, int(iw * 16 / 9) // 2 * 2
 
 
-def detect_face_x(source: Path, t: float, iw: int, ih: int, crop_w: int, work_dir: Path, log: Path, n: int) -> tuple[int, str]:
-    """Pick the crop x so the largest detected face is centered. Falls back to a centered crop."""
+def detect_face(source: Path, times: list[float], iw: int, ih: int, crop_w: int, n: int,
+                work_dir: Path, log: Path) -> tuple[int, str, int | None]:
+    """Sample a frame at each time in `times` and Haar-detect the largest face (small boxes ignored).
+
+    Returns (crop_x, mode, face_bottom_src): crop x centers the median face, face_bottom_src is the
+    lowest face bottom edge across frames in source pixels. Falls back to (center, "center", None).
+    """
     center = (iw - crop_w) // 2
-    frame = work_dir / f"clip_{n:02d}_face.jpg"
-    frame.unlink(missing_ok=True)
+    frames = [work_dir / f"clip_{n:02d}_face_{k}.jpg" for k in range(len(times))]
+    lines: list[str] = []
     try:
-        run([tool_path("ffmpeg"), "-y", "-hide_banner", "-ss", f"{t:.3f}", "-i", source,
-             "-frames:v", "1", "-q:v", "3", frame], log_path=log)
-        if not frame.exists():
-            return center, "center"
         import cv2  # venv only
-        img = cv2.imread(str(frame))
-        if img is None:
-            return center, "center"
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         clf = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-        faces = clf.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(ih // 12, ih // 12))
-        if len(faces) == 0:
-            with open(log, "a") as f:
-                f.write("no face found; centered\n")
-            return center, "center"
-        x, _y, w, _h = max(faces, key=lambda f: f[2] * f[3])
-        cx = x + w / 2
+        min_side = ih // 6
+        boxes = []
+        for t, frame in zip(times, frames):
+            frame.unlink(missing_ok=True)
+            run([tool_path("ffmpeg"), "-y", "-hide_banner", "-ss", f"{t:.3f}", "-i", source,
+                 "-frames:v", "1", "-q:v", "3", frame])
+            img = cv2.imread(str(frame)) if frame.exists() else None
+            if img is None:
+                lines.append(f"t={t:.2f}: none (no frame)")
+                continue
+            gray = cv2.equalizeHist(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+            faces = clf.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(min_side, min_side))
+            if len(faces) == 0:
+                lines.append(f"t={t:.2f}: none")
+                continue
+            fx, fy, fw, fh = (int(v) for v in max(faces, key=lambda f: f[2] * f[3]))
+            boxes.append((fx, fy, fw, fh))
+            lines.append(f"t={t:.2f}: face ({fx},{fy},{fw},{fh})")
+        if not boxes:
+            lines.append("decision: no face found; centered")
+            return center, "center", None
+        cxs = sorted(bx + bw / 2 for bx, _by, bw, _bh in boxes)
+        mid = len(cxs) // 2
+        cx = cxs[mid] if len(cxs) % 2 else (cxs[mid - 1] + cxs[mid]) / 2
         x = int(max(0, min(iw - crop_w, cx - crop_w / 2)))
-        with open(log, "a") as f:
-            f.write(f"face at x={cx:.0f}; crop x={x}\n")
-        return x, "face"
+        face_bottom_src = max(by + bh for _bx, by, _bw, bh in boxes)
+        lines.append(f"decision: face in {len(boxes)}/{len(times)} frames; median x={cx:.0f}; "
+                     f"crop x={x}; face_bottom_src={face_bottom_src}")
+        return x, "face", face_bottom_src
     except Exception as e:
-        with open(log, "a") as f:
-            f.write(f"face detect failed: {type(e).__name__}: {e}\n")
-        return center, "center"
+        lines.append(f"face detect failed: {type(e).__name__}: {e}; centered")
+        return center, "center", None
     finally:
-        frame.unlink(missing_ok=True)
+        for frame in frames:
+            frame.unlink(missing_ok=True)
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("".join(ln + "\n" for ln in lines))
 
 
 def build_filter(keep_ranges: list[list[float]], offset: float, crop_w: int, crop_h: int, x: int, y: int) -> str:
@@ -112,12 +129,18 @@ def cut_clip(src: Path, clip: dict, words: list[dict], cfg: dict, clip_dir: Path
     crop_w, crop_h = crop_geometry(info["width"], info["height"])
     crop_y = (info["height"] - crop_h) // 2
     center = (info["width"] - crop_w) // 2
+    face_bottom = None
     if cfg.get("crop_x_offset") is not None:
         x = int(max(0, min(info["width"] - crop_w, center + int(cfg["crop_x_offset"]))))
         mode = "config"
     else:
-        x, mode = detect_face_x(src, (start + end) / 2, info["width"], info["height"], crop_w,
-                                clip_dir, clip_dir / f"clip_{n:02d}_face.log", n)
+        face_log = clip_dir / f"clip_{n:02d}_face.log"
+        face_log.unlink(missing_ok=True)
+        times = [start + (end - start) * f for f in (0.25, 0.5, 0.75)]
+        x, mode, face_bottom_src = detect_face(src, times, info["width"], info["height"], crop_w, n,
+                                               clip_dir, face_log)
+        if face_bottom_src is not None:
+            face_bottom = round((face_bottom_src - crop_y) * 1920 / crop_h)
 
     out = clip_dir / f"clip_{n:02d}_raw.mp4"
     seek = max(0.0, start - SEEK_LEAD)
@@ -129,7 +152,8 @@ def cut_clip(src: Path, clip: dict, words: list[dict], cfg: dict, clip_dir: Path
            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out]
     run(cmd, log_path=clip_dir / f"clip_{n:02d}_cut.log")
     save_json(clip_dir / f"clip_{n:02d}_keep_ranges.json", ranges)
-    return {"raw": out, "keep_ranges": ranges, "dur": dur, "crop": mode, "warn": warn, "start": start, "end": end}
+    return {"raw": out, "keep_ranges": ranges, "dur": dur, "crop": mode, "warn": warn, "start": start, "end": end,
+            "face_bottom": face_bottom}
 
 
 def main() -> None:
@@ -147,7 +171,7 @@ def main() -> None:
     clip_dir.mkdir(exist_ok=True)
     res = cut_clip(source_path(slug), clip, load_json(wdir / "words.json"), load_config(), clip_dir)
     print(f"raw:   {res['raw']}")
-    print(f"dur:   {res['dur']}s  crop={res['crop']}  {res['warn']}".rstrip())
+    print(f"dur:   {res['dur']}s  crop={res['crop']}  face_bottom={res['face_bottom']}  {res['warn']}".rstrip())
 
 
 if __name__ == "__main__":

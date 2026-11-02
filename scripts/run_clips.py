@@ -72,7 +72,8 @@ def render_all(slug: str, cfg: dict, only: list[int] | None) -> dict:
             stale.unlink(missing_ok=True)
         try:
             cut = cut_clip(src, clip, words, cfg, clip_dir)
-            final, n_chunks = subtitle_clip(n, words, cut["keep_ranges"], cfg, clip_dir, color)
+            final, n_chunks = subtitle_clip(n, words, cut["keep_ranges"], cfg, clip_dir, color,
+                                            face_bottom=cut["face_bottom"])
             txt = clip_dir / f"clip_{n:02d}.txt"
             txt.write_text(caption_text(clip), encoding="utf-8")
             shutil.copy2(final, out_dir / final.name)

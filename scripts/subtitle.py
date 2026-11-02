@@ -29,7 +29,9 @@ MIN_FONT_SIZE = 40
 OUTLINE = 4
 SIDE_MARGIN = 60
 BAND_H = FONT_SIZE * 2
-BAND_Y = 1360 - BAND_H        # bottom edge at 1360 px = 70 % of the frame height
+BAND_Y_DEFAULT = 1360 - BAND_H        # bottom edge at 1360 px = 70 % of the frame height
+FACE_GAP = 24                         # px between the detected face bottom and the band top
+BAND_Y_MAX = 1920 - BAND_H - 220      # keeps clear of the Reels/Shorts bottom UI
 
 FONT_CANDIDATES = {
     "darwin": ["/System/Library/Fonts/Supplemental/Arial Black.ttf",
@@ -139,6 +141,13 @@ def render_chunk_png(text: str, font_path: Path | None, color: tuple, out_path: 
     return BAND_H
 
 
+def band_y(face_bottom: int | None) -> int:
+    """Top of the caption band: the default spot, pushed below the face (output px) but never into the bottom UI."""
+    if face_bottom is None:
+        return BAND_Y_DEFAULT
+    return min(max(BAND_Y_DEFAULT, face_bottom + FACE_GAP), BAND_Y_MAX)
+
+
 def build_overlay_filter(chunks: list[dict], y: int) -> str:
     """Chain one overlay per chunk: input i+1 is chunk i's PNG, shown only during [s, e]."""
     parts = []
@@ -151,7 +160,7 @@ def build_overlay_filter(chunks: list[dict], y: int) -> str:
 
 
 def subtitle_clip(n: int, words: list[dict], keep_ranges: list[list[float]], cfg: dict,
-                  clip_dir: Path, color: str | None = None) -> tuple[Path, int]:
+                  clip_dir: Path, color: str | None = None, face_bottom: int | None = None) -> tuple[Path, int]:
     """Render captions for clip n and burn them into clip_NN_raw.mp4 -> clip_NN.mp4."""
     color = color or cfg["subtitle_color"]
     if color not in COLORS:
@@ -160,7 +169,8 @@ def subtitle_clip(n: int, words: list[dict], keep_ranges: list[list[float]], cfg
     chunks = chunk_words(words_in_clip(words, keep_ranges))
     for c in chunks:
         c["text"] = c["text"].upper() if uppercase else c["text"]
-    save_json(clip_dir / f"clip_{n:02d}_subs.json", chunks)
+    y = band_y(face_bottom)
+    save_json(clip_dir / f"clip_{n:02d}_subs.json", {"band_y": y, "chunks": chunks})
 
     raw_name, out_name = f"clip_{n:02d}_raw.mp4", f"clip_{n:02d}.mp4"
     if not chunks:
@@ -179,7 +189,7 @@ def subtitle_clip(n: int, words: list[dict], keep_ranges: list[list[float]], cfg
 
     # Relative names + cwd keep the command free of drive letters and spaces on Windows.
     run([tool_path("ffmpeg"), "-y", "-hide_banner", "-i", raw_name, *inputs,
-         "-filter_complex", build_overlay_filter(chunks, BAND_Y),
+         "-filter_complex", build_overlay_filter(chunks, y),
          "-map", "[vout]", "-map", "0:a?",
          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "copy",
          "-movflags", "+faststart", out_name],

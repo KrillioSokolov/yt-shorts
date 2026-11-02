@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import CONFIG_PATH, EXAMPLE_CONFIG_PATH, VENV_DIR, WORKSPACE, load_config, venv_python  # noqa: E402
 
 # av>=16 removed the metadata_errors kwarg faster-whisper 1.2 still passes
-PY_DEPS = ["faster-whisper>=1.0", "av<16", "opencv-python-headless>=4.8", "Pillow>=10.1"]
+PY_DEPS = ["faster-whisper>=1.0", "av<16",
+           "opencv-python-headless>=4.8,<5",  # OpenCV 5 dropped CascadeClassifier (Haar cascades)
+           "Pillow>=10.1"]
 DEV_DEPS = ["pytest>=8"]
 TOOLS = ("ffmpeg", "ffprobe", "yt-dlp")
 

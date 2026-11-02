@@ -69,7 +69,9 @@ def test_cut_clip_produces_vertical_tightened_clip(tmp_path):
     clip = {"n": 1, "start": 0.9, "end": 18.0}
     res = cut.cut_clip(src, clip, words, cfg, tmp_path)
     assert res["raw"].exists()
-    assert res["crop"] in ("face", "center")
+    assert res["crop"] == "center"          # synthetic test pattern has no face
+    assert res["face_bottom"] is None
+    assert not list(tmp_path.glob("clip_01_face_*.jpg"))   # probe frames cleaned up
     assert (res["start"], res["end"]) == (1.0, 17.9)   # snapped: word start 1.0, word end 17.5 + 0.4 pad
     assert res["keep_ranges"] == [[1.0, 7.625], [12.875, 17.9]]
     assert res["dur"] == pytest.approx(11.65)
@@ -77,6 +79,32 @@ def test_cut_clip_produces_vertical_tightened_clip(tmp_path):
     assert (info["width"], info["height"]) == (1080, 1920)
     assert abs(info["duration"] - res["dur"]) < 0.5
     assert (tmp_path / "clip_01_keep_ranges.json").exists()
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_cut_clip_config_offset_skips_detection(tmp_path):
+    src = make_video(tmp_path / "source.mp4", 6)
+    words = [{"w": f"w{i}", "s": float(t), "e": t + 0.5} for i, t in enumerate([1, 2, 3, 4])]
+    cfg = common.load_config()
+    cfg["crop_x_offset"] = 40
+    res = cut.cut_clip(src, {"n": 1, "start": 1.0, "end": 4.5}, words, cfg, tmp_path)
+    assert res["crop"] == "config"
+    assert res["face_bottom"] is None
+    assert not list(tmp_path.glob("clip_01_face_*.jpg"))
+    assert not (tmp_path / "clip_01_face.log").exists()
+
+
+REAL_SRC = Path("/Users/skaix/yt-shorts/workspace/most-self-respecting-men-will-be-single-lXUjgq6MiCg/source.mp4")
+
+
+@pytest.mark.skipif(not REAL_SRC.exists() or not HAS_FFMPEG, reason="real workspace video not present")
+def test_detect_face_on_real_frame(tmp_path):
+    x, mode, face_bottom_src = cut.detect_face(REAL_SRC, [300.0, 400.0, 550.0], 1920, 1080, 606, 99,
+                                               tmp_path, tmp_path / "face.log")
+    assert mode == "face"
+    assert 500 <= x <= 800
+    assert 700 <= face_bottom_src <= 1000
+    assert not list(tmp_path.glob("clip_99_face_*.jpg"))
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")

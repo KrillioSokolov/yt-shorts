@@ -59,7 +59,7 @@ def test_render_all_writes_outputs_and_report(tmp_path, monkeypatch):
     assert (out_dir / "clip_01.mp4").exists()
     assert (out_dir / "clip_01.txt").read_text() == "First\n\nd1\n#x #y #z\n"
     subs = json.loads((wdir / "clips" / "clip_01_subs.json").read_text())
-    assert subs and subs[0]["text"].isupper()
+    assert subs["chunks"] and subs["chunks"][0]["text"].isupper()
     saved = json.loads((wdir / "report.json").read_text())
     assert saved["output_dir"] == str(out_dir)
     assert len(saved["clips"]) == 2

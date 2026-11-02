@@ -101,7 +101,8 @@ def test_subtitle_clip_burns_from_raw(tmp_path):
     assert final.name == "clip_03.mp4" and final.exists()
     assert n_chunks == 1
     subs = common.load_json(tmp_path / "clip_03_subs.json")
-    assert subs[0]["text"] == "HELLO WORLD." and subs[0]["s"] == pytest.approx(0.2)
+    assert subs["chunks"][0]["text"] == "HELLO WORLD." and subs["chunks"][0]["s"] == pytest.approx(0.2)
+    assert subs["band_y"] == subtitle.BAND_Y_DEFAULT
     assert not (tmp_path / "clip_03_subs").exists()       # PNGs cleaned up
     info = common.ffprobe_info(final)
     assert (info["width"], info["height"]) == (1080, 1920)
@@ -112,3 +113,10 @@ def test_subtitle_clip_burns_from_raw(tmp_path):
     img = Image.open(frame).convert("RGB")
     px = img.load()
     assert any(px[x, y] != (0, 0, 0) for y in range(1250, 1450, 5) for x in range(300, 780, 5))
+
+
+def test_band_y():
+    assert subtitle.band_y(None) == 1360 - 144
+    assert subtitle.band_y(1000) == 1360 - 144            # face above the default band
+    assert subtitle.band_y(1481) == 1481 + 24             # pushed below the face
+    assert subtitle.band_y(1900) == 1920 - 144 - 220      # capped above the bottom UI
