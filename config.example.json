@@ -1,0 +1,13 @@
+{
+  "channel_url": "",
+  "output_dir": "~/shorts",
+  "whisper_model": "small.en",
+  "subtitle_color": "white",
+  "subtitle_font": "Arial Black",
+  "subtitle_uppercase": true,
+  "crop_x_offset": null,
+  "remove_silence": true,
+  "gap_threshold": 0.6,
+  "gap_keep": 0.25,
+  "max_candidates": 25
+}
