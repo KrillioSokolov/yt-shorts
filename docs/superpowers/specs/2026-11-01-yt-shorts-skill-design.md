@@ -161,3 +161,13 @@ Auto-upload, multi-speaker split-screen, b-roll/motion graphics, karaoke word hi
 Homebrew's current ffmpeg formula (9.x) ships no libass, so the `ass`, `subtitles` and `drawtext` filters are unavailable on the dev Mac, and the skill must not depend on a particular ffmpeg build. Subtitles are therefore rendered as transparent PNG bands with Pillow (bold TTF from the OS: Arial Black / Arial Bold / Impact on macOS and Windows, DejaVu/Liberation Bold on Linux, `config.subtitle_font_file` override, Pillow default font as last resort) and composited by ffmpeg's core `overlay` filter, one overlay per chunk gated by `enable='between(t,s,e)'`. Look is unchanged: one line, uppercase, white or yellow fill, 4 px black outline, band bottom at 70 % of frame height, long lines shrink to fit inside 60 px side margins. Artifacts per clip: `clip_NN_subs.json` (chunk list) replaces `clip_NN.ass`; PNGs are deleted after a successful burn. `config.subtitle_font` is replaced by `config.subtitle_font_file` (null = auto). `setup.py` installs `Pillow>=10.1`.
 
 Overlay gating uses gte(t,s)*lt(t,e) (half-open) so adjacent chunks never draw on the same frame.
+
+## Verified 2026-11-01 (macOS, Python 3.12 venv, ffmpeg 8.1.1 without libass)
+
+- Test video id lXUjgq6MiCg (12m25s, one speaker, static camera). fetch 52 s; transcribe (small.en, int8 CPU) 1m32s for 2300 words; candidates: 25 windows spread 15-668 s, about 2.9K tokens.
+- 3 approved clips rendered in 45 s: 1080x1920 at 30 fps, 22.5 / 39.4 / 55.6 s, loudness -14.6 and -15.9 LUFS integrated, crop=face on all, captions below the chin or above the forehead when there is no room below.
+- Caption drift after silence removal: about 7 ms per dropped gap (0.14 s over 11 gaps), negligible.
+- Cache reuse: second fetch and transcribe return "cached" instantly.
+- Unit suite: 60 tests green (-W error), including real ffmpeg, Pillow and Haar paths.
+- Environment facts baked into setup.py: av<16 (faster-whisper 1.2), opencv-python-headless<5 (Haar cascades removed in 5.0), Pillow for subtitles (Homebrew ffmpeg ships no libass), deno recommended for yt-dlp.
+- Not yet verified: Windows smoke test (Spiro), token count of a fresh /yt-shorts clip session (candidates.json alone is about 2.9K tokens; expected total well under 30K).
