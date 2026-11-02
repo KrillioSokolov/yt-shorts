@@ -1,6 +1,6 @@
 """One-time setup: check tools, create venv, install python deps, prefetch the Whisper model.
 
-Run with the system python (not the venv):
+Run with a python >= 3.10 (system python, or the venv python if it already exists):
     python scripts/setup.py [--dev] [--skip-model]
 """
 from __future__ import annotations
@@ -30,6 +30,10 @@ def install_hint(missing: list[str]) -> str:
     return "sudo apt install ffmpeg && pipx install yt-dlp"
 
 
+def stderr_tail(text: str, n: int = 3) -> str:
+    return "\n".join(text.strip().splitlines()[-n:])
+
+
 def print_table(rows: list[tuple[str, str]]) -> None:
     width = max(len(k) for k, _ in rows)
     for k, v in rows:
@@ -55,13 +59,22 @@ def main() -> None:
         sys.exit(1)
 
     vp = venv_python()
-    if not vp.exists():
-        subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
+    if vp.exists():
+        chk = subprocess.run([str(vp), "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)"])
+        if chk.returncode != 0:
+            print("ERROR: existing .venv uses python < 3.10; delete the .venv folder and rerun setup")
+            sys.exit(1)
+    else:
+        try:
+            subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
+        except subprocess.CalledProcessError:
+            print("ERROR: could not create venv (on Debian/Ubuntu: sudo apt install python3-venv)")
+            sys.exit(1)
     pkgs = PY_DEPS + (DEV_DEPS if dev else [])
     r = subprocess.run([str(vp), "-m", "pip", "install", "-q", "--disable-pip-version-check", *pkgs],
                        capture_output=True, text=True)
     if r.returncode != 0:
-        print(r.stderr[-2000:])
+        print(stderr_tail(r.stderr))
         print("ERROR: pip install failed (see above)")
         sys.exit(1)
     rows.append(("venv", str(VENV_DIR)))
@@ -77,8 +90,12 @@ def main() -> None:
                 f"WhisperModel({cfg['whisper_model']!r}, device='cpu', compute_type='int8')")
         r = subprocess.run([str(vp), "-c", code], capture_output=True, text=True)
         if r.returncode != 0:
-            print(r.stderr[-1500:])
+            print(stderr_tail(r.stderr, 2))
         rows.append(("whisper model", cfg["whisper_model"] + (" ok" if r.returncode == 0 else " FAILED (see above)")))
+        if r.returncode != 0:
+            print_table(rows)
+            print("ERROR: whisper model download failed (see above); check network and rerun setup")
+            sys.exit(1)
 
     WORKSPACE.mkdir(exist_ok=True)
     rows.append(("output_dir", cfg["output_dir"]))
