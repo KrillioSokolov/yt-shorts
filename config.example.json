@@ -3,7 +3,7 @@
   "output_dir": "~/shorts",
   "whisper_model": "small.en",
   "subtitle_color": "white",
-  "subtitle_font": "Arial Black",
+  "subtitle_font_file": null,
   "subtitle_uppercase": true,
   "crop_x_offset": null,
   "remove_silence": true,
