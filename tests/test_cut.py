@@ -24,10 +24,17 @@ def test_snap_to_words_uses_nearest_word_edges_and_pad():
 def test_crop_geometry_even_width():
     assert cut.crop_geometry(1920, 1080) == (606, 1080)
     assert cut.crop_geometry(1280, 720) == (404, 720)
+    assert cut.crop_geometry(1080, 2400) == (1080, 1920)
+    assert cut.crop_geometry(720, 1280) == (720, 1280)
+
+
+def test_snap_end_pad_stops_before_next_word():
+    words = [{"w": "a", "s": 1.0, "e": 1.4}, {"w": "b", "s": 1.6, "e": 2.0}]
+    assert cut.snap_to_words(words, 0.9, 1.4) == (1.0, 1.6)
 
 
 def test_build_filter_single_range():
-    f = cut.build_filter([[10.0, 20.0]], offset=9.5, crop_w=606, crop_h=1080, x=657)
+    f = cut.build_filter([[10.0, 20.0]], offset=9.5, crop_w=606, crop_h=1080, x=657, y=0)
     assert "trim=start=0.500:end=10.500" in f
     assert "atrim=start=0.500:end=10.500" in f
     assert "concat=n=1:v=1:a=1" in f
@@ -36,7 +43,7 @@ def test_build_filter_single_range():
 
 
 def test_build_filter_two_ranges_chains_inputs():
-    f = cut.build_filter([[0, 1], [2, 3]], offset=0, crop_w=404, crop_h=720, x=438)
+    f = cut.build_filter([[0, 1], [2, 3]], offset=0, crop_w=404, crop_h=720, x=438, y=0)
     assert "[v0][a0][v1][a1]concat=n=2" in f
 
 
